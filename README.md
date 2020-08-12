@@ -3,7 +3,7 @@ c64-assembler
 
 In an old book I ran across recently I found a printout and some notes about
 an assembler I was working on, written in CBM basic for the C64 I had at the
-time. So I grabbed a copy of [VICE](http://www.viceteam.org/), an emulator
+time. So I grabbed a copy of [VICE](https://vice-emu.sourceforge.io/), an emulator
 for commodore systems that works great on OS X, and got it working.
 
 So after 30 years, here it is. Kinda surreal.
