@@ -1,65 +1,97 @@
 10 rem ** global variables
 20 tc = 0 : rem operation count
 30 dim tm$(255) : rem table of mnemonic
-40 dim tb%(255) : rem table of binary values
-50 dim ts%(255) : rem table of sizes
+30 dim ta$(255) : rem table of address modes
+40 dim ts%(255) : rem table of sizes
+50 dim tb%(255) : rem table of binary values
 60 ca = 49152 : rem current address
 
 100 rem ** read in the instruction table
 110 read tm$(tc)
 120 if tm$(tc) = "x" then 200
-130 read tb%(tc)
+130 read ta%(tc)
 140 read ts%(tc)
-150 tc = tc + 1
-160 goto 100
+150 read tb%(tc)
+160 tc = tc + 1
+170 goto 100
 
 200 rem ** start reading in instructions
 210 print ca " : ";
+211 rem ** force input to allow comma
+212 poke 631,34:poke 632,34:poke 633,20
+213 poke 198,3
 220 input in$
-230 if in$ = "x" then end
-240 s = 0
-250 if in$ = tm$(s) then 300
-260 s = s + 1
-270 if s = tc then print "unknown instruction":goto 200
-280 goto 250
+230 if left$(in$,1) = "x" then end
+235 mnem$ = left$(in$,3)
+240 in$ = right$(in$,len(in$)-4)
 
-300 rem ** found instruction
-310 bi = tb%(s) : rem binary instruction
-320 os = ts%(s) : rem operation size
-330 if os = 1 then 500
+300 rem ** figure out which addressing mode
+301 rem ** The zeropage addressing modes are classified using the same type
+302 rem ** as the absolute versions. When it comes time to look for a matching
+303 rem ** opcode we look for both a matching mode and a matching length the
+304 rem ** instruction will fit info.
+305 v = 0
+307 print "scanning for modes using",in$
+310 if left$(in$,1) = "a" then mode = 1:goto 500
+320 if left$(in$,1) = "#" then mode = 2:ps = 1:goto 400
+330 if len(in$) = 0 then mode = 3:goto 500
+340 if right$(in$,3) = ",x)" then mode = 8:ps = 1:goto 400
+350 if right$(in$,3) = "),y" then mode = 9:ps = 1:goto 400
+360 if left$(in$,1) = "(" then mode = 7:ps = 1:goto 400
+370 if right$(in$,2) = ",x" then mode = 5:ps = 0:goto 400
+380 if right$(in$,2) = ",y" then mode = 6:ps = 0:goto 400
+390 ps = 0:mode = 4:rem Default to absolute and parse the value
 
-400 rem ** handle immediate value
-410 input in$
-420 if left$(in$,1) <> "$" then v = val(in$):goto 480
-430 v = 0
-440 for s = 2 to len(in$)
-450 digit = asc(mid$(in$,s,1))
-460 v = v * 16 + digit - 48 + ((digit >= 65) * 7)
-470 next s
-480 if os = 2 and v > 255 then print "value must be 255 or less":goto 400
-490 if v > 65535 then print "value too large":goto 400
+400 rem ** parse immediate value
+410 tmp$ = right$(in$,len(in$)-ps)
+420 if left$(tmp$,1) <> "$" then v = val(tmp$):goto 500
+430 v = 0:s = 2
+440 digit = asc(mid$(tmp$,s,1))
+450 if digit < 48 or digit > 70 goto 500
+460 v = v * 16 + digit - (48 + ((digit >= 65) * 7))
+470 s = s + 1
+480 if s <= len(tmp$) goto 440
 
-500 rem ** store the bytes in memory
-510 poke ca, bi: ca = ca + 1
-520 if os = 1 then 200
-530 if os = 2 then poke ca, v: ca = ca + 1: goto 200
-540 hb = int(v/256)
-550 lb = v - (hb*256)
-560 poke ca, lb:ca = ca + 1
-570 poke ca, hb:ca = ca + 1
+500 rem ** match mnemonic and mode to instruction table
+505 if mode = 1 or mode = 3 then is = 1:goto 510
+507 if v <= 256 is = 2:goto 510
+508 is = 3
+510 s = 0
+520 if mnem$ = tm$(s) and mode = ta%(s) and is <= ts%(s)then 600
+530 s = s + 1
+540 if s < tc goto 520
+550 print "unknown instruction"
+560 print " mnem",mnem$
+570 print " mode",mode
+575 print " size",is
 580 goto 200
 
+600 rem ** store the bytes in memory
+605 os = ts%(s)
+606 bi = tb%(s)
+610 poke ca, bi: ca = ca + 1
+620 if os = 1 then 200
+630 if os = 2 then poke ca, v: ca = ca + 1: goto 200
+640 hb = int(v/256)
+650 lb = v - (hb*256)
+660 poke ca, lb:ca = ca + 1
+670 poke ca, hb:ca = ca + 1
+680 goto 200
+
 2000 rem ** instruction table
+2001 rem ** table is mnemonic, address mode, byte count, opcode
 
 2005 rem adc instruction
-2010 data "adc#",105,2
-2020 data "adcz",101,2
-2030 data "adczx",117,2
-2040 data "adca",109,3
-2050 data "adcax",125,3
-2060 data "adcay",121,3
-2070 data "adcix",97,2
-2080 data "adciy",113,2
+2010 data "adc",2,2,105
+2020 data "adc",4,2,101
+2030 data "adc",5,2,117
+2040 data "adc",4,3,109
+2050 data "adc",5,3,125
+2060 data "adc",6,3,121
+2070 data "adc",8,2,97
+2080 data "adc",9,2,113
+
+2090 data "x"
 
 2105 rem and instruction
 2110 data "and#",41,2
@@ -188,7 +220,7 @@
 4930 data "ldazx",181,2
 4940 data "ldaa",173,3
 4950 data "ldaax",189,3
-4960 data "ldaay",185,3
+4960 data "lda",185,3
 4970 data "ldaix",161,2
 4980 data "ldaiy",177,2
 
@@ -315,4 +347,3 @@
 7520 data "tya",152,1
 
 9999 data "x"
-
