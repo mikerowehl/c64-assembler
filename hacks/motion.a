@@ -11,11 +11,11 @@ STOPCHECK=$ffe1
 
 SCREENMEM=$0400
 COLORMEM=$d800
+COLS=40
+ROWS=25
 
 SP_HI=$bc ; Screen pointer high byte
 SP_LO=$bb ; Screen pointer low
-COLS=40
-ROWS=25
 
 CP_HI=$ff ; Color pointer high
 CP_LO=$fe ; Color pointer low
@@ -25,9 +25,11 @@ CSR_DOWN=$11
 CSR_UP=$91
 CSR_RIGHT=$1d
 CSR_LEFT=$9d
+SPACE=$20
 
 ; Character used to represent empty cell
 EMPTY=$2e
+FULL=$2a
 
   .org $c000
   lda #$93
@@ -88,16 +90,25 @@ wait:
   lda inval
   cmp #CSR_RIGHT
   bne check_left
+  cpy #COLS-1
+  beq draw
   iny
+  sty cval
   jmp draw
 check_left:
   cmp #CSR_LEFT
   bne check_down
+  cpy #$00
+  beq draw
   dey
+  sty cval
   jmp draw
 check_down:
   cmp #CSR_DOWN
   bne check_up
+  ldx rval
+  cpx #ROWS-1
+  beq draw
   inc rval
   clc
   lda #COLS
@@ -107,7 +118,10 @@ check_down:
   inc CP_HI
 check_up:
   cmp #CSR_UP
-  bne draw
+  bne check_space
+  ldx rval
+  cpx #$00
+  beq draw
   dec rval
   sec
   lda CP_LO
@@ -116,15 +130,54 @@ check_up:
   lda CP_HI
   sbc #$00
   sta CP_HI
+  jmp draw
+check_space
+  cmp #SPACE
+  bne draw
+  jsr flip_cell
 
 draw:
   lda #$00
+  ldy cval
   sta (CP_LO),y
-  sty cval
   jmp wait
 
 exit:
   rts
+
+flip_cell:
+  ldx #(SCREENMEM >> 8)
+  stx SP_HI
+  ldx #(SCREENMEM & $ff)
+  stx SP_LO  ; Setup the screen pointer
+  ldx #$00
+
+find_row:
+  cpx rval
+  beq on_row
+
+  inx
+  clc
+  lda #COLS
+  adc SP_LO
+  sta SP_LO
+  bcc find_row
+  inc SP_HI
+  jmp find_row
+ 
+on_row:
+  ldy cval
+  lda (SP_LO),y
+  cmp #FULL
+  beq empty
+  lda #FULL
+  jmp store
+empty:
+  lda #EMPTY
+store:
+  sta (SP_LO),y
+  rts
+
 rval:
   .byte 0x00
 cval:
