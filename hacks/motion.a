@@ -160,26 +160,8 @@ exit:
   rts
 
 flip_cell:
-  ldx #(SCREENMEM >> 8)
-  stx SP_HI
-  ldx #(SCREENMEM & $ff)
-  stx SP_LO  ; Setup the screen pointer
-  ldx #$00
-
-find_row:
-  cpx rval
-  beq on_row
-
-  inx
-  clc
-  lda #COLS
-  adc SP_LO
-  sta SP_LO
-  bcc find_row
-  inc SP_HI
-  jmp find_row
- 
-on_row:
+  ldx rval
+  jsr screen_row
   ldy cval
   lda (SP_LO),y
   cmp #FULL
@@ -201,17 +183,24 @@ next_generation:
   lda #(workarea & $ff)
   sta NG_LO  ; Setup the work area pointer
 
-  ldy ngc
-
 ngcol:
-  ldx ngr
-  jsr screen_value
+  jsr ncount
+  ldy ngc
+  cmp #$03
+  beq live
+  lda #EMPTY
+  jmp put
+live:
+  lda #FULL
+put:
   sta (NG_LO),y
   iny
+  sty ngc
   cpy #COLS
   bcc ngcol
 
   ldy #$00
+  sty ngc
   inc ngr
   ldx ngr
   cpx #ROWS
@@ -240,11 +229,8 @@ ngdone:
   ;     find neighbor +1 row and +1 col
 
 screen_value:
-  ; x register has the row to get value from
-  ; y register has the column
-  ; Walk the screeen pointer to the right row
-  ; load the value from the screen and return in
-  ; the a register
+  ; row number is in the x register, col in y
+  ; character from screen returned in a
   jsr screen_row
   lda (SP_LO),y
   rts
@@ -272,6 +258,42 @@ screen_row_loop:
   jmp screen_row_loop
 
 screen_row_found:
+  rts
+
+ncount:
+  ; Using ngr and ngc as the current cell find
+  ; the 8 neighbor cells and return a count in
+  ; register a of how many are populated
+  lda #$00
+  sta ngnc
+  ldx ngr
+  beq same_row
+  dex
+  jsr screen_row
+  ldy ngc
+  beq previous_above
+  dey
+  lda (SP_LO),y
+  iny
+  cmp #FULL
+  bne previous_above
+  inc ngnc
+previous_above:
+  lda (SP_LO),y
+  cmp #FULL
+  bne skip_inc
+  inc ngnc
+skip_inc:
+  cpy #COLS-1
+  beq same_row
+  iny
+  lda (SP_LO),y
+  cmp #FULL
+  bne same_row
+  inc ngnc
+
+same_row:
+  lda ngnc
   rts
 
 rval:
