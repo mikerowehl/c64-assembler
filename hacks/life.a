@@ -1,0 +1,434 @@
+; C64 Program
+; Simple demo of Conway's Game of Life. Compiles with vasm:
+;   vasm -dotdir -Fbin -cbm-prg life.a -o life.prg
+; Execute with:
+;   sys 49152
+; Screen that comes up is editable. Use the arrow keys to move
+; around and the space bar to toggle a cell on or off. Use the g
+; key to run a generation.
+
+GETIN=$ffe4
+CHROUT=$ffd2
+STOPCHECK=$ffe1
+
+SCREENMEM=$0400
+COLORMEM=$d800
+COLS=40
+ROWS=25
+
+SP_HI=$bc ; Screen pointer high byte
+SP_LO=$bb ; Screen pointer low
+
+CP_HI=$ff ; Color pointer high
+CP_LO=$fe ; Color pointer low
+
+NG_HI=$fd ; Next generation high
+NG_LO=$fc ; Next generation low
+
+; The values GETIN returns for the keys we care about
+CSR_DOWN=$11
+CSR_UP=$91
+CSR_RIGHT=$1d
+CSR_LEFT=$9d
+SPACE=$20
+GENERATION=$47
+
+; Character used to represent empty cell
+EMPTY=$2e
+FULL=$2a
+
+  .org $c000
+  lda #$93
+  jsr CHROUT ; Clear the screen
+  ldx #(SCREENMEM >> 8)
+  stx SP_HI
+  ldx #(SCREENMEM & $ff)
+  stx SP_LO  ; Setup the screen pointer
+  ldx #$00
+  stx rval
+  stx cval
+
+rloop:
+  lda #EMPTY
+  ldy #$00
+
+cloop:
+  sta (SP_LO),y
+  iny
+  cpy #COLS
+  bcc cloop
+
+  inx
+  cpx #ROWS
+  beq color
+
+  clc
+  lda #COLS
+  adc SP_LO
+  sta SP_LO
+  bcc rloop
+  inc SP_HI
+  bne rloop
+
+color:
+  ldx #(COLORMEM >> 8)
+  stx CP_HI
+  ldx #(COLORMEM & $ff)
+  stx CP_LO
+
+  ldy cval
+  lda #$00
+  sta (CP_LO),y
+
+wait:
+  jsr STOPCHECK
+  beq stop_exit
+  jsr GETIN
+  beq wait
+  sta inval
+  jmp handle_char
+
+stop_exit:
+  rts
+
+handle_char:
+  ; We got a character, set current cell color back to
+  ; default.
+  lda #$0e
+  ldy cval
+  sta (CP_LO),y
+
+  lda inval
+  cmp #CSR_RIGHT
+  bne check_left
+  cpy #COLS-1
+  beq draw
+  iny
+  sty cval
+  jmp draw
+check_left:
+  cmp #CSR_LEFT
+  bne check_down
+  cpy #$00
+  beq draw
+  dey
+  sty cval
+  jmp draw
+check_down:
+  cmp #CSR_DOWN
+  bne check_up
+  ldx rval
+  cpx #ROWS-1
+  beq draw
+  inc rval
+  clc
+  lda #COLS
+  adc CP_LO
+  sta CP_LO
+  bcc draw
+  inc CP_HI
+  jmp draw
+check_up:
+  cmp #CSR_UP
+  bne check_space
+  ldx rval
+  cpx #$00
+  beq draw
+  dec rval
+  sec
+  lda CP_LO
+  sbc #COLS
+  sta CP_LO
+  lda CP_HI
+  sbc #$00
+  sta CP_HI
+  jmp draw
+check_space:
+  cmp #SPACE
+  bne check_gen
+  jsr flip_cell
+  jmp draw
+check_gen:
+  cmp #GENERATION
+  bne draw
+  jsr next_generation
+
+draw:
+  lda #$00
+  ldy cval
+  sta (CP_LO),y
+  jmp wait
+
+exit:
+  rts
+
+flip_cell:
+  ldx rval
+  jsr screen_row
+  ldy cval
+  lda (SP_LO),y
+  cmp #FULL
+  beq empty
+  lda #FULL
+  jmp store
+empty:
+  lda #EMPTY
+store:
+  sta (SP_LO),y
+  rts
+
+next_generation:
+  lda #$00
+  sta ngr
+  sta ngc
+  lda #(workarea >> 8)
+  sta NG_HI
+  lda #(workarea & $ff)
+  sta NG_LO  ; Setup the work area pointer
+
+ngcol:
+  jsr ncount
+  ldy ngc
+  lda ngcc
+  cmp #FULL
+  beq live_cell
+dead_cell: ; cell being evaluated is dead
+  lda ngnc
+  cmp #$03
+  beq live_result
+  bne dead_result
+live_cell: ; cell being evaluated is live
+  lda ngnc
+  cmp #$02
+  beq live_result
+  cmp #$03
+  beq live_result
+  ; fall into dead result
+dead_result:
+  lda #EMPTY
+  jmp put
+live_result:
+  lda #FULL
+put:
+  sta (NG_LO),y
+  iny
+  sty ngc
+  cpy #COLS
+  bcc ngcol
+
+  ldy #$00
+  sty ngc
+  inc ngr
+  ldx ngr
+  cpx #ROWS
+  beq ngdone
+
+  clc
+  lda #COLS
+  adc NG_LO
+  sta NG_LO
+  bcc ngcol
+  inc NG_HI
+  jmp ngcol
+
+ngdone:
+  jsr repaint_screen
+  rts
+
+repaint_screen:
+  ; take the contents in the working area and
+  ; copy them to the display
+  lda #(workarea >> 8)
+  sta NG_HI
+  lda #(workarea & $ff)
+  sta NG_LO  ; Setup the work area pointer
+  lda #(SCREENMEM >> 8)
+  sta SP_HI
+  lda #(SCREENMEM & $ff)
+  sta SP_LO  ; Setup the screen pointer
+  ldx #$00 ; row
+  ldy #$00 ; col
+
+repaint_loop:
+  lda (NG_LO),y
+  sta (SP_LO),y
+  iny
+  cpy #COLS
+  bcc repaint_loop
+  ldy #$00
+  inx ; increment row
+  cpx #ROWS
+  beq repaint_done
+
+  clc
+  lda #COLS
+  adc NG_LO
+  sta NG_LO
+  bcc repaint_next_sr
+  inc NG_HI
+repaint_next_sr:
+  clc
+  lda #COLS
+  adc SP_LO
+  sta SP_LO
+  bcc repaint_loop
+  inc SP_HI
+  jmp repaint_loop
+
+repaint_done:
+  rts
+
+  ; loop from 0 to rows
+  ;   loop from 0 to cols
+  ;     find neighbor -1 row and -1 col
+  ;     find neighbor -1 row and 0 col
+  ;     find neighbor -1 row and +1 col
+  ;     find neighbor 0 row and -1 col
+  ;     find neighbor 0 row and +1 col
+  ;     find neighbor +1 row and -1 col
+  ;     find neighbor +1 row and 0 col
+  ;     find neighbor +1 row and +1 col
+
+screen_value:
+  ; row number is in the x register, col in y
+  ; character from screen returned in a
+  jsr screen_row
+  lda (SP_LO),y
+  rts
+
+screen_row:
+  ; Sets the SP_HI and SP_LO zero page pointer
+  ; to point to the start of a row. The row
+  ; number is passed as the x register.
+  lda #(SCREENMEM >> 8)
+  sta SP_HI
+  lda #(SCREENMEM & $ff)
+  sta SP_LO  ; Setup the screen pointer
+
+screen_row_loop:
+  cpx #$00
+  beq screen_row_found
+
+  dex
+  clc
+  lda #COLS
+  adc SP_LO
+  sta SP_LO
+  bcc screen_row_loop
+  inc SP_HI
+  jmp screen_row_loop
+
+screen_row_found:
+  rts
+
+ncount:
+  ; Using ngr and ngc as the current cell find
+  ; the 8 neighbor cells and return a count in
+  ; ngnc and the current cell in ngcc
+  lda #$00
+  sta ngnc
+  ldx ngr
+  beq sr
+  dex
+  jsr screen_row
+  ldy ngc
+  beq pr_above ; if at first col, skip col
+
+pr: ; previous row
+  dey ; back one column
+  lda (SP_LO),y
+  iny ; advance a col
+  cmp #FULL
+  bne pr_above
+  inc ngnc
+pr_above:
+  lda (SP_LO),y
+  cmp #FULL
+  bne pr_right
+  inc ngnc
+pr_right:
+  cpy #COLS-1
+  beq sr ; is there a col to the right
+  iny
+  lda (SP_LO),y
+  cmp #FULL
+  bne sr
+  inc ngnc
+
+sr: ; same row
+  ldx ngr
+  jsr screen_row
+  ldy ngc
+  beq sr_current ; no left column
+  dey
+  lda (SP_LO),y
+  iny
+  cmp #FULL
+  bne sr_current
+  inc ngnc
+sr_current:
+  lda (SP_LO),y
+  sta ngcc
+sr_right:
+  cpy #COLS-1
+  beq nr ; jump to next row if no right col
+  iny
+  lda (SP_LO),y
+  cmp #FULL
+  bne nr
+  inc ngnc
+
+nr:
+  ldx ngr
+  cpx #ROWS-1
+  beq ncount_done
+  inx
+  jsr screen_row
+  ldy ngc
+  beq nr_below
+  dey
+  lda (SP_LO),y
+  iny
+  cmp #FULL
+  bne nr_below
+  inc ngnc
+nr_below:
+  lda (SP_LO),y
+  cmp #FULL
+  bne nr_right
+  inc ngnc
+nr_right:
+  cpy #COLS-1
+  beq ncount_done
+  iny
+  lda (SP_LO),y
+  cmp #FULL
+  bne ncount_done
+  inc ngnc
+
+ncount_done:
+  rts
+
+rval:
+  .byte 0x00
+cval:
+  .byte 0x00
+ngr: ; Next generation row
+  .byte 0x00
+ngc: ; Next generation col
+  .byte 0x00
+ngnc: ; Next generation neighbor count
+  .byte 0x00
+ngcc: ; Next generation current cell
+  .byte 0x00
+inval:
+  .byte 0x00
+workarea:
+; This is the scratch space we use when creating a new
+; generation. We leave the current state on the main 
+; screen and write the new cell contents into this area.
+; Then copy this over into the screen memory. This is a
+; lot longer than 1 byte. But the memory is just unused
+; space on the C64, so we just need a symbol pointing
+; to the start.
+  .byte 0x00
