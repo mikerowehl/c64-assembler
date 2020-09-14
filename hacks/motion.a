@@ -1,0 +1,133 @@
+; C64 Program
+; Fills up the screen with periods and changes the color of a single
+; cell to black. Allows for moving the active cell around with the 
+; arrow keys. Compiles with vasm:
+;  vasm -dotdir -Fbin -cbm-prg motion.a -o motion.prg
+; execute with sys 49152
+
+GETIN=$ffe4
+CHROUT=$ffd2
+STOPCHECK=$ffe1
+
+SCREENMEM=$0400
+COLORMEM=$d800
+
+SP_HI=$bc ; Screen pointer high byte
+SP_LO=$bb ; Screen pointer low
+COLS=40
+ROWS=25
+
+CP_HI=$ff ; Color pointer high
+CP_LO=$fe ; Color pointer low
+
+; The values GETIN returns for the keys we care about
+CSR_DOWN=$11
+CSR_UP=$91
+CSR_RIGHT=$1d
+CSR_LEFT=$9d
+
+; Character used to represent empty cell
+EMPTY=$2e
+
+  .org $c000
+  lda #$93
+  jsr CHROUT ; Clear the screen
+  ldx #(SCREENMEM >> 8)
+  stx SP_HI
+  ldx #(SCREENMEM & $ff)
+  stx SP_LO  ; Setup the screen pointer
+  ldx #$00
+  stx rval
+  stx cval
+
+rloop:
+  lda #EMPTY
+  ldy #$00
+
+cloop:
+  sta (SP_LO),y
+  iny
+  cpy #COLS
+  bcc cloop
+
+  inx
+  cpx #ROWS
+  beq color
+
+  clc
+  lda #COLS
+  adc SP_LO
+  sta SP_LO
+  bcc rloop
+  inc SP_HI
+  bne rloop
+
+color:
+  ldx #(COLORMEM >> 8)
+  stx CP_HI
+  ldx #(COLORMEM & $ff)
+  stx CP_LO
+
+  ldy cval
+  lda #$00
+  sta (CP_LO),y
+
+wait:
+  jsr STOPCHECK
+  beq exit
+  jsr GETIN
+  beq wait
+  sta inval
+
+  ; We got a character, set current cell color back to
+  ; default.
+  lda #$0e
+  ldy cval
+  sta (CP_LO),y
+
+  lda inval
+  cmp #CSR_RIGHT
+  bne check_left
+  iny
+  jmp draw
+check_left:
+  cmp #CSR_LEFT
+  bne check_down
+  dey
+  jmp draw
+check_down:
+  cmp #CSR_DOWN
+  bne check_up
+  inc rval
+  clc
+  lda #COLS
+  adc CP_LO
+  sta CP_LO
+  bcc draw
+  inc CP_HI
+check_up:
+  cmp #CSR_UP
+  bne draw
+  dec rval
+  sec
+  lda CP_LO
+  sbc #COLS
+  sta CP_LO
+  lda CP_HI
+  sbc #$00
+  sta CP_HI
+
+draw:
+  lda #$00
+  sta (CP_LO),y
+  sty cval
+  jmp wait
+
+exit:
+  rts
+rval:
+  .byte 0x00
+cval:
+  .byte 0x00
+inval:
+  .byte 0x00
