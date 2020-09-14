@@ -20,12 +20,16 @@ SP_LO=$bb ; Screen pointer low
 CP_HI=$ff ; Color pointer high
 CP_LO=$fe ; Color pointer low
 
+NG_HI=$fd ; Next generation high
+NG_LO=$fc ; Next generation low
+
 ; The values GETIN returns for the keys we care about
 CSR_DOWN=$11
 CSR_UP=$91
 CSR_RIGHT=$1d
 CSR_LEFT=$9d
 SPACE=$20
+GENERATION=$47
 
 ; Character used to represent empty cell
 EMPTY=$2e
@@ -76,11 +80,16 @@ color:
 
 wait:
   jsr STOPCHECK
-  beq exit
+  beq stop_exit
   jsr GETIN
   beq wait
   sta inval
+  jmp handle_char
 
+stop_exit:
+  rts
+
+handle_char:
   ; We got a character, set current cell color back to
   ; default.
   lda #$0e
@@ -131,10 +140,15 @@ check_up:
   sbc #$00
   sta CP_HI
   jmp draw
-check_space
+check_space:
   cmp #SPACE
-  bne draw
+  bne check_gen
   jsr flip_cell
+  jmp draw
+check_gen:
+  cmp #GENERATION
+  bne draw
+  jsr next_generation
 
 draw:
   lda #$00
@@ -178,9 +192,106 @@ store:
   sta (SP_LO),y
   rts
 
+next_generation:
+  lda #$00
+  sta ngr
+  sta ngc
+  lda #(workarea >> 8)
+  sta NG_HI
+  lda #(workarea & $ff)
+  sta NG_LO  ; Setup the work area pointer
+
+  ldy ngc
+
+ngcol:
+  ldx ngr
+  jsr screen_value
+  sta (NG_LO),y
+  iny
+  cpy #COLS
+  bcc ngcol
+
+  ldy #$00
+  inc ngr
+  ldx ngr
+  cpx #ROWS
+  beq ngdone
+
+  clc
+  lda #COLS
+  adc NG_LO
+  sta NG_LO
+  bcc ngcol
+  inc NG_HI
+  jmp ngcol
+
+ngdone:
+  rts
+
+  ; loop from 0 to rows
+  ;   loop from 0 to cols
+  ;     find neighbor -1 row and -1 col
+  ;     find neighbor -1 row and 0 col
+  ;     find neighbor -1 row and +1 col
+  ;     find neighbor 0 row and -1 col
+  ;     find neighbor 0 row and +1 col
+  ;     find neighbor +1 row and -1 col
+  ;     find neighbor +1 row and 0 col
+  ;     find neighbor +1 row and +1 col
+
+screen_value:
+  ; x register has the row to get value from
+  ; y register has the column
+  ; Walk the screeen pointer to the right row
+  ; load the value from the screen and return in
+  ; the a register
+  jsr screen_row
+  lda (SP_LO),y
+  rts
+
+screen_row:
+  ; Sets the SP_HI and SP_LO zero page pointer
+  ; to point to the start of a row. The row
+  ; number is passed as the x register.
+  lda #(SCREENMEM >> 8)
+  sta SP_HI
+  lda #(SCREENMEM & $ff)
+  sta SP_LO  ; Setup the screen pointer
+
+screen_row_loop:
+  cpx #$00
+  beq screen_row_found
+
+  dex
+  clc
+  lda #COLS
+  adc SP_LO
+  sta SP_LO
+  bcc screen_row_loop
+  inc SP_HI
+  jmp screen_row_loop
+
+screen_row_found:
+  rts
+
 rval:
   .byte 0x00
 cval:
   .byte 0x00
+ngr: ; Next generation row
+  .byte 0x00
+ngc: ; Next generation col
+  .byte 0x00
+ngnc: ; Next generation neighbor count
+  .byte 0x00
 inval:
+  .byte 0x00
+workarea:
+; This is the scratch space we use when creating a new
+; generation. We leave the current state on the main 
+; screen and write the new cell contents into this area.
+; Then copy this over into the screen memory. This is a
+; lot longer than 1 byte. But the memory is just unused
+; space on the C64, so we just need a symbol pointing
+; to the start.
   .byte 0x00
