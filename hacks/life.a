@@ -47,6 +47,7 @@ FULL=$2a
   ldx #$00
   stx rval
   stx cval
+  stx sp_row
 
 rloop:
   lda #EMPTY
@@ -62,6 +63,7 @@ cloop:
   cpx #ROWS
   beq color
 
+  stx sp_row
   clc
   lda #COLS
   adc SP_LO
@@ -248,6 +250,7 @@ repaint_screen:
   sta SP_LO  ; Setup the screen pointer
   ldx #$00 ; row
   ldy #$00 ; col
+  stx sp_row
 
 repaint_loop:
   lda (NG_LO),y
@@ -260,6 +263,7 @@ repaint_loop:
   cpx #ROWS
   beq repaint_done
 
+  stx sp_row
   clc
   lda #COLS
   adc NG_LO
@@ -300,10 +304,20 @@ screen_row:
   ; Sets the SP_HI and SP_LO zero page pointer
   ; to point to the start of a row. The row
   ; number is passed as the x register.
+  cpx sp_row
+  bcc screen_row_first
+  txa
+  sec
+  sbc sp_row
+  stx sp_row
+  tax
+  jmp screen_row_loop
+screen_row_first:
   lda #(SCREENMEM >> 8)
   sta SP_HI
   lda #(SCREENMEM & $ff)
   sta SP_LO  ; Setup the screen pointer
+  stx sp_row
 
 screen_row_loop:
   cpx #$00
@@ -409,9 +423,15 @@ nr_right:
 ncount_done:
   rts
 
+; The row and column of the "cursor", used to track the active cell for
+; screen editing
 rval:
   .byte 0x00
 cval:
+  .byte 0x00
+
+; Tracks which row number the SP_HI/SP_LO pointer is currently pointed at
+sp_row:
   .byte 0x00
 ngr: ; Next generation row
   .byte 0x00
