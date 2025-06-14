@@ -1,0 +1,11 @@
+; C64 Program
+; Change the border color. Compile with:
+;   vasm -dotdir -Fbin -cbm-prg border.a -o border.prg
+; Execute with:
+;   sys 49152
+
+  .org $c000
+  lda #4
+  sta $d020
+  rts
+
