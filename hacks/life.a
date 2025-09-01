@@ -104,16 +104,24 @@ handle_char:
   cmp #CSR_RIGHT
   bne check_left
   cpy #COLS-1
-  beq draw
+  beq wrap_col_end
   iny
+  sty cval
+  jmp draw
+wrap_col_end:
+  ldy #0
   sty cval
   jmp draw
 check_left:
   cmp #CSR_LEFT
   bne check_down
   cpy #$00
-  beq draw
+  beq wrap_col_start
   dey
+  sty cval
+  jmp draw
+wrap_col_start:
+  ldy #COLS-1
   sty cval
   jmp draw
 check_down:
