@@ -12,7 +12,9 @@ CHROUT=$ffd2
 STOPCHECK=$ffe1
 
 SCREENMEM=$0400
+SCREENMEM_LAST=SCREENMEM+((ROWS-1)*COLS)
 COLORMEM=$d800
+COLORMEM_LAST=COLORMEM+((ROWS-1)*COLS)
 COLS=40
 ROWS=25
 
@@ -129,7 +131,7 @@ check_down:
   bne check_up
   ldx rval
   cpx #ROWS-1
-  beq draw
+  beq wrap_row_bottom
   inc rval
   clc
   lda #COLS
@@ -138,12 +140,20 @@ check_down:
   bcc draw
   inc CP_HI
   jmp draw
+wrap_row_bottom:
+  ldx #0
+  stx rval
+  ldx #(COLORMEM >> 8)
+  stx CP_HI
+  ldx #(COLORMEM & $ff)
+  stx CP_LO
+  jmp draw
 check_up:
   cmp #CSR_UP
   bne check_space
   ldx rval
   cpx #$00
-  beq draw
+  beq wrap_row_top
   dec rval
   sec
   lda CP_LO
@@ -152,6 +162,14 @@ check_up:
   lda CP_HI
   sbc #$00
   sta CP_HI
+  jmp draw
+wrap_row_top:
+  ldx #ROWS-1
+  stx rval
+  ldx #(COLORMEM_LAST >> 8)
+  stx CP_HI
+  ldx #(COLORMEM_LAST & $ff)
+  stx CP_LO
   jmp draw
 check_space:
   cmp #SPACE
